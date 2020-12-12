@@ -11,6 +11,10 @@ import musdb
 
 from .audio import AudioFile
 
+import yaml
+from .inference import Inferencer
+from argparse import Namespace
+
 
 def get_musdb_tracks(root, *args, **kwargs):
     mus = musdb.DB(root, *args, **kwargs)
@@ -33,6 +37,10 @@ class StemsSet:
         self.stride = stride
         self.channels = channels
         self.samplerate = samplerate
+        self.args = Namespace(attr='demucs/attr.pkl', config='demucs/config.yaml', model='demucs/vctk_model.ckpt')
+        with open(self.args.config) as f:
+            self.config = yaml.load(f)
+        self.inferencer = Inferencer(config=self.config, args=self.args)
 
     def __len__(self):
         return sum(self._examples_count(m) for m in self.metadata)
@@ -60,8 +68,14 @@ class StemsSet:
             streams = AudioFile(meta["path"]).read(seek_time=index * self.stride,
                                                    duration=self.duration,
                                                    channels=self.channels,
-                                                   samplerate=self.samplerate)
-            return (streams - meta["mean"]) / meta["std"]
+                                                   samplerate=self.samplerate) # size is 5 stems * 2 channels * T
+            #print(meta["path"])
+            #print(self.samplerate)
+            content_embedding = self.inferencer.infer_content(streams[0], samplerate=self.samplerate) # give stream of mixture only
+            #print(streams.shape)
+            #print(content_embedding.shape)
+            #print()
+            return (streams - meta["mean"]) / meta["std"], content_embedding
 
 
 def _get_track_metadata(path):

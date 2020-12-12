@@ -14,6 +14,8 @@ from fractions import Fraction
 import torch as th
 from torch import distributed, nn
 from torch.nn.parallel.distributed import DistributedDataParallel
+from torch.multiprocessing import set_start_method
+set_start_method('spawn')
 
 from .augment import FlipChannels, FlipSign, Remix, Shift
 from .compressed import StemsSet, build_musdb_metadata, get_musdb_tracks
@@ -21,6 +23,7 @@ from .model import Demucs
 from .parser import get_name, get_parser
 from .raw import Rawset
 from .tasnet import ConvTasNet
+from .wavesplit import WaveSplit
 from .test import evaluate
 from .train import train_model, validate_model
 from .utils import human_seconds, load_model, save_model, sizeof_fmt
@@ -87,7 +90,8 @@ def main():
         args.repeat = 0
         model = load_model(args.models / args.test)
     elif args.tasnet:
-        model = ConvTasNet(audio_channels=args.audio_channels, X=args.X)
+        #model = ConvTasNet(audio_channels=args.audio_channels, X=args.X)
+        model = WaveSplit(audio_channels=args.audio_channels, X=args.X)
     else:
         model = Demucs(
             audio_channels=args.audio_channels,

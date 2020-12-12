@@ -35,7 +35,8 @@ def train_model(epoch,
         batch_size //= world_size
         loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
     else:
-        loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
+        #loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
+        loader = DataLoader(dataset, batch_size=batch_size, num_workers=1, shuffle=True)
     current_loss = 0
     for repetition in range(repeat):
         tq = tqdm.tqdm(loader,
@@ -46,15 +47,17 @@ def train_model(epoch,
                        unit=" batch")
         total_loss = 0
         for idx, streams in enumerate(tq):
-            if len(streams) < batch_size:
+            if len(streams[0]) < batch_size:
                 # skip uncomplete batch for augment.Remix to work properly
                 continue
-            streams = streams.to(device)
+            streams = streams[0].to(device)
             sources = streams[:, 1:]
             sources = augment(sources)
             mix = sources.sum(dim=1)
-
-            estimates = model(mix)
+            
+            content_embeddings = streams[1]
+            
+            estimates = model(mix, content_embeddings)
             sources = center_trim(sources, estimates)
             loss = criterion(estimates, sources)
             loss.backward()
@@ -66,7 +69,7 @@ def train_model(epoch,
             tq.set_postfix(loss=f"{current_loss:.4f}")
 
             # free some space before next round
-            del streams, sources, mix, estimates, loss
+            del content_embeddings, streams, sources, mix, estimates, loss
 
         if world_size > 1:
             sampler.epoch += 1
