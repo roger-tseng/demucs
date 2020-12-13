@@ -202,6 +202,16 @@ class Decoder(nn.Module):
         est_source = overlap_and_add(est_source, self.L // 2)  # M x C x ac x T
         return est_source
 
+class Conv1d_Custom(nn.Module):
+    def __init__(in_channels, out_channels, kernel_size, bias):
+        super(Conv1d_Custom, self).__init__()
+        self.network = nn.Conv1d(in_channels, out_channels, kernel_size, bias)
+
+    def forward(self, input):
+        if type(input)==tuple:
+            return self.network(input[0]), input[1]
+        else:
+            return self.network(input)
 
 class TemporalConvNet(nn.Module):
     def __init__(self, N, B, H, P, X, R, C, norm_type="gLN", causal=False, mask_nonlinear='relu'):
@@ -226,7 +236,7 @@ class TemporalConvNet(nn.Module):
         # [M, N, K] -> [M, N, K]
         layer_norm = ChannelwiseLayerNorm(N)
         # [M, N, K] -> [M, B, K]
-        bottleneck_conv1x1 = nn.Conv1d(N, B, 1, bias=False)
+        bottleneck_conv1x1 = Conv1d_Custom(N, B, 1, bias=False)
         # [M, B, K] -> [M, B, K]
         repeats = []
         for r in range(R):
@@ -247,7 +257,7 @@ class TemporalConvNet(nn.Module):
             repeats += [nn.Sequential(*blocks)]
         temporal_conv_net = nn.Sequential(*repeats)
         # [M, B, K] -> [M, C*N, K]
-        mask_conv1x1 = nn.Conv1d(B, C * N, 1, bias=False)
+        mask_conv1x1 = Conv1d_Custom(B, C * N, 1, bias=False)
         # Put together
         self.network = nn.Sequential(layer_norm, bottleneck_conv1x1, temporal_conv_net,
                                      mask_conv1x1)
@@ -262,7 +272,8 @@ class TemporalConvNet(nn.Module):
             est_mask: [M, C, N, K]
         """
         M, N, K = mixture_w.size()
-        score = self.network(mixture_w)  # [M, N, K] -> [M, C*N, K]
+        score, _ = self.network((mixture_w, emb))  # [M, N, K] -> [M, C*N, K]
+        print("emb staying the same is:", _==emb)
         score = score.view(M, self.C, N, K)  # [M, C*N, K] -> [M, C, N, K]
         if self.mask_nonlinear == 'softmax':
             est_mask = F.softmax(score, dim=1)
@@ -272,6 +283,15 @@ class TemporalConvNet(nn.Module):
             raise ValueError("Unsupported mask non-linear function")
         return est_mask
 
+class PReLU_Custom(nn.Module):
+    def __init__(in_channels, out_channels, kernel_size, bias):
+        super(PReLU_Custom, self).__init__()
+
+    def forward(self, input):
+        if type(input)==tuple:
+            return nn.PReLU(input[0]), input[1]
+        else:
+            return nn.PReLU(input)
 
 class TemporalBlock(nn.Module):
     def __init__(self,
@@ -285,8 +305,8 @@ class TemporalBlock(nn.Module):
                  causal=False):
         super(TemporalBlock, self).__init__()
         # [M, B, K] -> [M, H, K]
-        conv1x1 = nn.Conv1d(in_channels, out_channels, 1, bias=False)
-        prelu = nn.PReLU()
+        conv1x1 = Conv1d_Custom(in_channels, out_channels, 1, bias=False)
+        prelu = PReLU_Custom()
         norm = chose_norm(norm_type, out_channels)
         # [M, H, K] -> [M, B, K]
         dsconv = DepthwiseSeparableConv(out_channels, in_channels, kernel_size, stride, padding,
@@ -301,12 +321,38 @@ class TemporalBlock(nn.Module):
         Returns:
             [M, B, K]
         """
-        residual = x
-        out = self.net(x)
-        # TODO: when P = 3 here works fine, but when P = 2 maybe need to pad?
-        return out + residual  # look like w/o F.relu is better than w/ F.relu
-        # return F.relu(out + residual)
+        if type(x)==tuple:
+            residual = x[0]
+            out = self.net(x)
+            # TODO: when P = 3 here works fine, but when P = 2 maybe need to pad?
+            return out + residual, x[1]  # look like w/o F.relu is better than w/ F.relu
+            # return F.relu(out + residual)
+        else:
+            residual = x
+            out = self.net(x)
+            return out + residual
 
+class DilatedConv(nn.Module):
+    def __init__(self, a, b, c, d, e, f, g, h):
+        super(DilatedConv, self).__init__()
+        self.dconv = nn.Conv1d(a,
+                               b,
+                               c,
+                               stride=d,
+                               padding=e,
+                               dilation=f,
+                               groups=g,
+                               bias=h)
+
+    def forward(self, x):
+        emb = x[1]
+        print("embedding size is", emb.size())
+        dconv_x = self.dconv(x[0])
+        lin1 = nn.Linear(emb.size()[1], dconv_x.size()[1])
+        lin2 = nn.Linear(emb.size()[1], dconv_x.size()[1])
+        a = F.interpolate(lin1(emb.transpose(1,2)).transpose(1,2), size=dconv_x.size())
+        b = F.interpolate(lin2(emb.transpose(1,2)).transpose(1,2), size=dconv_x.size())
+        return a * dconv_x + b, emb
 
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self,
@@ -321,7 +367,7 @@ class DepthwiseSeparableConv(nn.Module):
         super(DepthwiseSeparableConv, self).__init__()
         # Use `groups` option to implement depthwise convolution
         # [M, H, K] -> [M, H, K]
-        depthwise_conv = nn.Conv1d(in_channels,
+        depthwise_conv = DilatedConv(in_channels,
                                    in_channels,
                                    kernel_size,
                                    stride=stride,
@@ -331,10 +377,10 @@ class DepthwiseSeparableConv(nn.Module):
                                    bias=False)
         if causal:
             chomp = Chomp1d(padding)
-        prelu = nn.PReLU()
+        prelu = PReLU_Custom()
         norm = chose_norm(norm_type, in_channels)
         # [M, H, K] -> [M, B, K]
-        pointwise_conv = nn.Conv1d(in_channels, out_channels, 1, bias=False)
+        pointwise_conv = Conv1d_Custom(in_channels, out_channels, 1, bias=False)
         # Put together
         if causal:
             self.net = nn.Sequential(depthwise_conv, chomp, prelu, norm, pointwise_conv)
@@ -365,7 +411,10 @@ class Chomp1d(nn.Module):
         Returns:
             [M, H, K]
         """
-        return x[:, :, :-self.chomp_size].contiguous()
+        if type(x)==tuple:
+            return x[0][:, :, :-self.chomp_size].contiguous(), x[1]
+        else:
+            return x[:, :, :-self.chomp_size].contiguous()
 
 
 def chose_norm(norm_type, channel_size):
@@ -377,10 +426,12 @@ def chose_norm(norm_type, channel_size):
     elif norm_type == "cLN":
         return ChannelwiseLayerNorm(channel_size)
     elif norm_type == "id":
+        raise ValueError("Unsupported norm id")
         return nn.Identity()
     else:  # norm_type == "BN":
         # Given input (M, C, K), nn.BatchNorm1d(C) will accumulate statics
         # along M and K, so this BN usage is right.
+        raise ValueError("Unsupported norm BatchNorm")
         return nn.BatchNorm1d(channel_size)
 
 
@@ -404,10 +455,18 @@ class ChannelwiseLayerNorm(nn.Module):
         Returns:
             cLN_y: [M, N, K]
         """
-        mean = torch.mean(y, dim=1, keepdim=True)  # [M, 1, K]
-        var = torch.var(y, dim=1, keepdim=True, unbiased=False)  # [M, 1, K]
-        cLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
-        return cLN_y
+        if type(y)==tuple:
+            emb = y[1]
+            y = y[0]
+            mean = torch.mean(y, dim=1, keepdim=True)  # [M, 1, K]
+            var = torch.var(y, dim=1, keepdim=True, unbiased=False)  # [M, 1, K]
+            cLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
+            return cLN_y, emb
+        else:
+            mean = torch.mean(y, dim=1, keepdim=True)  # [M, 1, K]
+            var = torch.var(y, dim=1, keepdim=True, unbiased=False)  # [M, 1, K]
+            cLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta    
+            return cLN_y
 
 
 class GlobalLayerNorm(nn.Module):
@@ -430,10 +489,18 @@ class GlobalLayerNorm(nn.Module):
             gLN_y: [M, N, K]
         """
         # TODO: in torch 1.0, torch.mean() support dim list
-        mean = y.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)  # [M, 1, 1]
-        var = (torch.pow(y - mean, 2)).mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)
-        gLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
-        return gLN_y
+        if type(y)==tuple:
+            emb = y[1]
+            y = y[0]
+            mean = y.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)  # [M, 1, 1]
+            var = (torch.pow(y - mean, 2)).mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)
+            gLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
+            return gLN_y, emb
+        else:
+            mean = y.mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)  # [M, 1, 1]
+            var = (torch.pow(y - mean, 2)).mean(dim=1, keepdim=True).mean(dim=2, keepdim=True)
+            gLN_y = self.gamma * (y - mean) / torch.pow(var + EPS, 0.5) + self.beta
+            return gLN_y
 
 
 if __name__ == "__main__":
