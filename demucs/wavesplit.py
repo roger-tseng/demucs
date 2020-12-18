@@ -120,6 +120,9 @@ class WaveSplit(nn.Module):
         Returns:
             est_source: [M, C, T]
         """
+        #print("start of wavesplit training: mixture size is", mixture.size())
+        #print("start of wavesplit training: embedding size is", emb.size())
+        #print("start of wavesplit training: emb device is", emb.device)
         mixture_w = self.encoder(mixture)
         est_mask = self.separator(mixture_w, emb)
         est_source = self.decoder(mixture_w, est_mask)
@@ -203,12 +206,14 @@ class Decoder(nn.Module):
         return est_source
 
 class Conv1d_Custom(nn.Module):
-    def __init__(in_channels, out_channels, kernel_size, bias):
+    def __init__(self, in_channels, out_channels, kernel_size, bias):
         super(Conv1d_Custom, self).__init__()
-        self.network = nn.Conv1d(in_channels, out_channels, kernel_size, bias)
+        self.network = nn.Conv1d(in_channels, out_channels, kernel_size, bias=bias)
 
     def forward(self, input):
         if type(input)==tuple:
+            #print("Conv1d_Custom:", type(input[0]))
+            #print("Conv1d_Custom:", input[0].size())
             return self.network(input[0]), input[1]
         else:
             return self.network(input)
@@ -272,8 +277,9 @@ class TemporalConvNet(nn.Module):
             est_mask: [M, C, N, K]
         """
         M, N, K = mixture_w.size()
+        #print("passing emb to TCN")
         score, _ = self.network((mixture_w, emb))  # [M, N, K] -> [M, C*N, K]
-        print("emb staying the same is:", _==emb)
+        #print("emb staying the same is:", _==emb)
         score = score.view(M, self.C, N, K)  # [M, C*N, K] -> [M, C, N, K]
         if self.mask_nonlinear == 'softmax':
             est_mask = F.softmax(score, dim=1)
@@ -284,14 +290,15 @@ class TemporalConvNet(nn.Module):
         return est_mask
 
 class PReLU_Custom(nn.Module):
-    def __init__(in_channels, out_channels, kernel_size, bias):
+    def __init__(self):
         super(PReLU_Custom, self).__init__()
+        self.network = nn.PReLU()
 
     def forward(self, input):
         if type(input)==tuple:
-            return nn.PReLU(input[0]), input[1]
+            return self.network(input[0]), input[1]
         else:
-            return nn.PReLU(input)
+            return self.network(input)
 
 class TemporalBlock(nn.Module):
     def __init__(self,
@@ -323,9 +330,11 @@ class TemporalBlock(nn.Module):
         """
         if type(x)==tuple:
             residual = x[0]
+            #print("passing to TemporalBlock")
             out = self.net(x)
+            #print("In TemporalBlock:", type(out))
             # TODO: when P = 3 here works fine, but when P = 2 maybe need to pad?
-            return out + residual, x[1]  # look like w/o F.relu is better than w/ F.relu
+            return out[0] + residual, out[1]  # look like w/o F.relu is better than w/ F.relu
             # return F.relu(out + residual)
         else:
             residual = x
@@ -333,26 +342,43 @@ class TemporalBlock(nn.Module):
             return out + residual
 
 class DilatedConv(nn.Module):
-    def __init__(self, a, b, c, d, e, f, g, h):
+    def __init__(self, a, b, c, stride, padding, dilation, groups, bias):
         super(DilatedConv, self).__init__()
         self.dconv = nn.Conv1d(a,
                                b,
                                c,
-                               stride=d,
-                               padding=e,
-                               dilation=f,
-                               groups=g,
-                               bias=h)
+                               stride,
+                               padding,
+                               dilation,
+                               groups,
+                               bias)
+        self.lin1 = nn.Linear(128, a) # a = in_channels = H
+        self.lin2 = nn.Linear(128, a)
 
     def forward(self, x):
+        """
+        Args:
+            x[0]: layer, [M, H, K]
+            x[1]: embedding, [M, ]
+        Returns:
+            result: [M, H, K]
+        """
+        M, H, K = x[0].size()
         emb = x[1]
-        print("embedding size is", emb.size())
         dconv_x = self.dconv(x[0])
-        lin1 = nn.Linear(emb.size()[1], dconv_x.size()[1])
-        lin2 = nn.Linear(emb.size()[1], dconv_x.size()[1])
-        a = F.interpolate(lin1(emb.transpose(1,2)).transpose(1,2), size=dconv_x.size())
-        b = F.interpolate(lin2(emb.transpose(1,2)).transpose(1,2), size=dconv_x.size())
-        return a * dconv_x + b, emb
+        
+        #lin1 = nn.Linear(emb.size()[1], dconv_x.size()[1])
+        #lin2 = nn.Linear(emb.size()[1], dconv_x.size()[1])
+        
+        emb = emb.transpose(1,2)
+        #print("emb size in Dilated:", emb.size())
+        #print("Linear layer is:", self.lin1)
+        temp_a = self.lin1(emb)
+        temp_b = self.lin2(emb)
+        
+        a = F.interpolate(temp_a.transpose(1,2), size=K)
+        b = F.interpolate(temp_b.transpose(1,2), size=K)
+        return a * dconv_x + b, emb.transpose(1,2)
 
 class DepthwiseSeparableConv(nn.Module):
     def __init__(self,

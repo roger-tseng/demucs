@@ -72,8 +72,8 @@ class StemsSet:
             #print(meta["path"])
             #print(self.samplerate)
             content_embedding = self.inferencer.infer_content(streams[0], samplerate=self.samplerate) # give stream of mixture only
-            #print(streams.shape)
-            #print(content_embedding.shape)
+            #print("compressed streams shape:", streams.shape)
+            #print("compressed embedding shape:", content_embedding.shape)
             #print()
             return (streams - meta["mean"]) / meta["std"], content_embedding
 

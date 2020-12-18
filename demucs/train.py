@@ -7,11 +7,22 @@
 import sys
 
 import tqdm
+import torch
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from .utils import apply_model, average_metric, center_trim
 
+def collate_tuple(batch):
+    '''
+    Each batch consists of (streams, embeddings)
+    '''
+    streams = torch.stack(tuple(i[0] for i in batch))
+    #print("streams size is:", streams.size())
+    embeddings = torch.stack(tuple(i[1] for i in batch))
+    #print("emb size is:", embeddings.size())
+    #print("done collating")
+    return [streams, embeddings]
 
 def train_model(epoch,
                 dataset,
@@ -33,10 +44,9 @@ def train_model(epoch,
             sampler_epoch += seed * 1000
         sampler.set_epoch(sampler_epoch)
         batch_size //= world_size
-        loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=workers)
+        loader = DataLoader(dataset, batch_size=batch_size, sampler=sampler, num_workers=workers, collate_fn=collate_tuple)
     else:
-        #loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
-        loader = DataLoader(dataset, batch_size=batch_size, num_workers=1, shuffle=True)
+        loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True, collate_fn=collate_tuple)
     current_loss = 0
     for repetition in range(repeat):
         tq = tqdm.tqdm(loader,
@@ -50,13 +60,11 @@ def train_model(epoch,
             if len(streams[0]) < batch_size:
                 # skip uncomplete batch for augment.Remix to work properly
                 continue
+            content_embeddings = streams[1].to(device)
             streams = streams[0].to(device)
             sources = streams[:, 1:]
             sources = augment(sources)
             mix = sources.sum(dim=1)
-            
-            content_embeddings = streams[1]
-            
             estimates = model(mix, content_embeddings)
             sources = center_trim(sources, estimates)
             loss = criterion(estimates, sources)

@@ -252,7 +252,7 @@ class Inferencer(object):
         src_mel, _ = get_spectrograms_direct(streams, samplerate)
         #src_mel = torch.from_numpy(self.normalize(src_mel)).cuda()
         src_mel = torch.from_numpy(src_mel).cuda()
-        print("mel size: ", src_mel.size())
+        #print("mel size: ", src_mel.size())
         x = self.utt_make_frames(src_mel)
         #print("x size: ", x.size())
         emb = self.model.get_content_embeddings(x)
