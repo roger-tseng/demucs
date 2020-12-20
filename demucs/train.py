@@ -63,11 +63,16 @@ def train_model(epoch,
             content_embeddings = streams[1].to(device)
             streams = streams[0].to(device)
             sources = streams[:, 1:]
+            #print("idx:", idx, "sources size (train):", sources.size())
             sources = augment(sources)
+            #print("idx:", idx, "sources size after augment (train):", sources.size())
             mix = sources.sum(dim=1)
+            #print("idx:", idx, "mix size after augment (train):", mix.size())
+            #print("idx:", idx, "emb size (train)", content_embeddings.size())
             estimates = model(mix, content_embeddings)
             sources = center_trim(sources, estimates)
             loss = criterion(estimates, sources)
+            #print("idx:", idx, "loss:", loss)
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -105,14 +110,21 @@ def validate_model(epoch,
                    unit=" track")
     current_loss = 0
     for index in tq:
-        streams = dataset[index]
+        
+        streams, emb = dataset[index]
+        print("streams type:", type(streams), "size:", streams.size())
+        emb = emb[None, :, :].to(device) # reshape emb to 3D tensor (batch of 1)
+        print("emb type:", type(emb), "size:", emb.size())
         # first five minutes to avoid OOM on --upsample models
         streams = streams[..., :15_000_000]
         streams = streams.to(device)
         sources = streams[1:]
+        print("idx:", index, "sources size (valid):", sources.size())
         mix = streams[0]
-        estimates = apply_model(model, mix, shifts=shifts, split=split)
+        print("idx:", index, "mix size (valid):", mix.size())
+        estimates = apply_model(model, emb, mix, shifts=shifts, split=split)
         loss = criterion(estimates, sources)
+        print("idx:", index, "loss (valid):", loss)
         current_loss += loss.item() / len(indexes)
         del estimates, streams, sources
 

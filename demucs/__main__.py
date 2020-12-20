@@ -176,10 +176,13 @@ def main():
                              stride=stride,
                              samplerate=args.samplerate,
                              channels=args.audio_channels)
+        print("train set metadata", train_set.metadata)
         valid_set = StemsSet(get_musdb_tracks(args.musdb, subsets=["train"], split="valid"),
                              metadata,
+                             duration=duration,
                              samplerate=args.samplerate,
                              channels=args.audio_channels)
+        print("valid set metadata", valid_set.metadata)
 
     best_loss = float("inf")
     for epoch, metrics in enumerate(saved.metrics):
@@ -221,7 +224,7 @@ def main():
                                     rank=args.rank,
                                     split=args.split_valid,
                                     world_size=args.world_size)
-
+        print("train loss:", train_loss, "valid loss:", valid_loss)
         duration = time.time() - begin
         if valid_loss < best_loss:
             best_loss = valid_loss
