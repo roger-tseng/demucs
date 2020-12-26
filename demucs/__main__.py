@@ -175,13 +175,15 @@ def main():
                              duration=duration,
                              stride=stride,
                              samplerate=args.samplerate,
-                             channels=args.audio_channels)
+                             channels=args.audio_channels,
+                             speaker_emb=args.speaker_emb)
         print("train set metadata", train_set.metadata)
         valid_set = StemsSet(get_musdb_tracks(args.musdb, subsets=["train"], split="valid"),
                              metadata,
                              duration=duration,
                              samplerate=args.samplerate,
-                             channels=args.audio_channels)
+                             channels=args.audio_channels,
+                             speaker_emb=args.speaker_emb)
         print("valid set metadata", valid_set.metadata)
 
     best_loss = float("inf")

@@ -159,8 +159,8 @@ def get_parser():
     parser.add_argument("--show",
                         action="store_true",
                         help="Show model architecture, size and exit")
-    parser.add_argument("--save_model", action="store_true")
-
+    parser.add_argument("--save_model", action="store_true") 
+    parser.add_argument("--speaker_emb", default=False, action="store_true", help="Uses speaker embedding instead of content embedding")
     return parser
 
 

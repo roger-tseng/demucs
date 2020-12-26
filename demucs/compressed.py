@@ -22,7 +22,7 @@ def get_musdb_tracks(root, *args, **kwargs):
 
 
 class StemsSet:
-    def __init__(self, tracks, metadata, duration=None, stride=1, samplerate=44100, channels=2):
+    def __init__(self, tracks, metadata, duration=None, stride=1, samplerate=44100, channels=2, speaker_emb=False):
 
         self.metadata = []
         for name, path in tracks.items():
@@ -37,6 +37,7 @@ class StemsSet:
         self.stride = stride
         self.channels = channels
         self.samplerate = samplerate
+        self.use_speaker_emb = speaker_emb
         self.args = Namespace(attr='demucs/attr.pkl', config='demucs/config.yaml', model='demucs/vctk_model.ckpt')
         with open(self.args.config) as f:
             self.config = yaml.load(f)
@@ -71,11 +72,14 @@ class StemsSet:
                                                    samplerate=self.samplerate) # size is 5 stems * 2 channels * T
             #print(meta["path"])
             #print(self.samplerate)
-            content_embedding = self.inferencer.infer_content(streams[0], samplerate=self.samplerate) # give stream of mixture only
+            if self.use_speaker_emb:
+                embedding = self.inferencer.infer_speaker(streams[0], samplerate=self.samplerate) # give stream of mixture only
+            else:
+                embedding = self.inferencer.infer_content(streams[0], samplerate=self.samplerate) # give stream of mixture only
             #print("compressed streams shape:", streams.shape)
-            #print("compressed embedding shape:", content_embedding.shape)
+            print("compressed embedding shape:", embedding.shape)
             #print()
-            return (streams - meta["mean"]) / meta["std"], content_embedding
+            return (streams - meta["mean"]) / meta["std"], embedding
 
 
 def _get_track_metadata(path):

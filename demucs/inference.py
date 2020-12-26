@@ -261,6 +261,19 @@ class Inferencer(object):
         emb = emb.squeeze(0)
         return emb
 
+    def infer_speaker(self, streams, samplerate):
+        src_mel, _ = get_spectrograms_direct(streams, samplerate)
+        #src_mel = torch.from_numpy(self.normalize(src_mel)).cuda()
+        src_mel = torch.from_numpy(src_mel).cuda()
+        #print("mel size: ", src_mel.size())
+        x = self.utt_make_frames(src_mel)
+        #print("x size: ", x.size())
+        emb = self.model.get_speaker_embeddings(x)
+        emb = emb.detach().cpu()
+        #emb = self.denormalize(emb)
+        emb = emb.squeeze(0)
+        return emb
+
 if __name__ == '__main__':
     
     parser = ArgumentParser()
