@@ -8,7 +8,7 @@ import json
 from concurrent import futures
 
 import musdb
-
+import torch
 from .audio import AudioFile
 
 import yaml
@@ -74,10 +74,11 @@ class StemsSet:
             #print(self.samplerate)
             if self.use_speaker_emb:
                 embedding = self.inferencer.infer_speaker(streams[0], samplerate=self.samplerate) # give stream of mixture only
+                embedding = torch.unsqueeze(embedding, 1)
             else:
                 embedding = self.inferencer.infer_content(streams[0], samplerate=self.samplerate) # give stream of mixture only
             #print("compressed streams shape:", streams.shape)
-            print("compressed embedding shape:", embedding.shape)
+            #print("compressed embedding shape:", embedding.shape)
             #print()
             return (streams - meta["mean"]) / meta["std"], embedding
 
