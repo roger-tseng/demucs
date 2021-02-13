@@ -112,19 +112,19 @@ def validate_model(epoch,
     for index in tq:
         
         streams, emb = dataset[index]
-        print("streams type:", type(streams), "size:", streams.size())
+        #print("streams type:", type(streams), "size:", streams.size())
         emb = emb[None, :, :].to(device) # reshape emb to 3D tensor (batch of 1)
-        print("emb type:", type(emb), "size:", emb.size())
+        #print("emb type:", type(emb), "size:", emb.size())
         # first five minutes to avoid OOM on --upsample models
         streams = streams[..., :15_000_000]
         streams = streams.to(device)
         sources = streams[1:]
-        print("idx:", index, "sources size (valid):", sources.size())
+        #print("idx:", index, "sources size (valid):", sources.size())
         mix = streams[0]
-        print("idx:", index, "mix size (valid):", mix.size())
+        #print("idx:", index, "mix size (valid):", mix.size())
         estimates = apply_model(model, emb, mix, shifts=shifts, split=split)
         loss = criterion(estimates, sources)
-        print("idx:", index, "loss (valid):", loss)
+        #print("idx:", index, "loss (valid):", loss)
         current_loss += loss.item() / len(indexes)
         del estimates, streams, sources
 

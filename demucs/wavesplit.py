@@ -353,7 +353,11 @@ class DilatedConv(nn.Module):
                                groups,
                                bias)
         self.lin1 = nn.Linear(128, a) # a = in_channels = H
+        nn.init.constant_(self.lin1.weight, 0) 
+        nn.init.constant_(self.lin1.bias, 1)
         self.lin2 = nn.Linear(128, a)
+        nn.init.constant_(self.lin2.weight, 0)
+        nn.init.constant_(self.lin2.bias, 0)
 
     def forward(self, x):
         """

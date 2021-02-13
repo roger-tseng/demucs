@@ -118,11 +118,18 @@ def main():
     optimizer = th.optim.Adam(model.parameters(), lr=args.lr)
 
     try:
-        saved = th.load(checkpoint, map_location='cpu')
+        if args.pretrained: 
+            saved = th.load(r"org/demucs/checkpoints/musdb=musdb18 samples=40000 epochs=180 repeat=1 batch_size=4 tasnet=True split_valid=True X=10.thu", map_location='cpu')
+        else:
+            saved = th.load(checkpoint, map_location='cpu')
     except IOError:
         saved = SavedState()
     else:
-        model.load_state_dict(saved.last_state)
+        print("Runs else load statement in __main__")
+        if args.pretrained: 
+            model.load_state_dict(saved.last_state, strict=False)
+        else: 
+            model.load_state_dict(saved.last_state)
         optimizer.load_state_dict(saved.optimizer)
 
     if args.save_model:
@@ -177,14 +184,14 @@ def main():
                              samplerate=args.samplerate,
                              channels=args.audio_channels,
                              speaker_emb=args.speaker_emb)
-        print("train set metadata", train_set.metadata)
+        #print("train set metadata", train_set.metadata)
         valid_set = StemsSet(get_musdb_tracks(args.musdb, subsets=["train"], split="valid"),
                              metadata,
                              duration=duration,
                              samplerate=args.samplerate,
                              channels=args.audio_channels,
                              speaker_emb=args.speaker_emb)
-        print("valid set metadata", valid_set.metadata)
+        #print("valid set metadata", valid_set.metadata)
 
     best_loss = float("inf")
     for epoch, metrics in enumerate(saved.metrics):
@@ -226,7 +233,7 @@ def main():
                                     rank=args.rank,
                                     split=args.split_valid,
                                     world_size=args.world_size)
-        print("train loss:", train_loss, "valid loss:", valid_loss)
+        #print("train loss:", train_loss, "valid loss:", valid_loss)
         duration = time.time() - begin
         if valid_loss < best_loss:
             best_loss = valid_loss

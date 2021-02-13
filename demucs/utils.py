@@ -138,7 +138,7 @@ def apply_model(model, emb, mix, shifts=None, split=False, progress=False):
         delta = valid_length - length
         padded = F.pad(mix, (delta // 2, delta - delta // 2))
         with th.no_grad():
-            print("model input size:", padded.unsqueeze(0).size(), emb.size())
+            #print("model input size:", padded.unsqueeze(0).size(), emb.size())
             out = model(padded.unsqueeze(0), emb)[0]
         return center_trim(out, mix)
 
